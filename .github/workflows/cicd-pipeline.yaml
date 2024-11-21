@@ -1,0 +1,109 @@
+name: Django CI
+
+on:
+  workflow_dispatch:
+
+
+permissions:
+  contents: write
+  security-events: write
+  
+jobs:
+  Checkout_and_Scan_Code:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        with:
+          projectBaseDir: .
+          args: >
+            -Dsonar.projectKey=Django-CRUD-app
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: SonarQube Quality Gate check
+        id: sonarqube-quality-gate-check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        with:
+          projectBaseDir: .
+          args: >
+            -Dsonar.projectKey=Django-CRUD-app
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        
+      
+  Build_and_Scan_docker_image:
+    runs-on: ubuntu-20.04
+    needs: Checkout_and_Scan_Code
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name:  Build Docker Image
+        uses: azure/docker-login@v2
+        with:
+          login-server: myfirstlab.azurecr.io  # Replace with your ACR login server
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+      - run: |
+          docker build . -t myfirstlab.azurecr.io/djangoapi:v1.0.${{ github.run_number }}      
+
+      - name: Push Docker Image
+        run: |
+          docker push myfirstlab.azurecr.io/djangoapi:v1.0.${{ github.run_number }}
+
+      - name: Run Trivy vulnerability scanner on docker image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: 'myfirstlab.azurecr.io/djangoapi:v1.0.${{ github.run_number }}'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          format: 'table'
+          severity: 'CRITICAL'
+
+     
+  modify_image_tag_in_K8s_repo:
+    needs: Build_and_Scan_docker_image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'george-ajayiola/django-CRUD-app-K8s'
+          token: ${{ secrets.GIT_TOKEN }}
+      
+
+      - name: Modifying the k8s manifest in git repo
+        run: |
+          git config user.email "${{ secrets.GIT_EMAIL }}"
+          git config user.name "george-ajayiola"
+          echo "Working Directory: $(pwd)"
+       
+          # Navigate to the specific helm chart directory
+    
+          cd helm/django-api-chart
+
+          # Print values.yaml for debugging before changes
+          echo "Before modification: "
+          cat values.yaml
+         
+          sed -i 's/tag: .*/tag: "v1.0.${{github.run_number}}"/' values.yaml
+         
+          # Print values.yaml for debugging after changes
+          echo "After modification:"
+          cat values.yaml
+         
+          git add .
+          git commit -m "Update image tag to v1.0.${{ github.run_number }}"
+          git push origin main
+        env:
+          GIT_USERNAME: george-ajayiola
+          GIT_PASSWORD: ${{ secrets.GIT_TOKEN }}
