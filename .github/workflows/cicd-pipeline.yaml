@@ -77,7 +77,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          repository: 'george-ajayiola/django-CRUD-app-K8s'
+          repository: 'george-ajayiola/django-REST-api-k8s'
           token: ${{ secrets.GIT_TOKEN }}
       
 
@@ -104,6 +104,6 @@ jobs:
           git add .
           git commit -m "Update image tag to v1.0.${{ github.run_number }}"
           git push origin main
-        env:
-          GIT_USERNAME: george-ajayiola
-          GIT_PASSWORD: ${{ secrets.GIT_TOKEN }}
+        # env:
+        #   GIT_USERNAME: george-ajayiola
+        #   GIT_PASSWORD: ${{ secrets.GIT_TOKEN }}
